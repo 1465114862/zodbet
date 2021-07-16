@@ -386,7 +386,7 @@ def sell_test3(bought):
     temp=-1
     if bought[0]+'sell' in dict_:
         temp=dict_[bought[0]+'sell']
-    return  ((temp>0 and (float(bought[2])-float(dict_[bought[0]]))*1000>temp) or bought[7]=='涨停' or probability_to_lose(int(round((float(bought[2])-float(dict_[bought[0]]))*1000)),rlist[int(bought[8])],71-time.localtime(time.time()).tm_hour*3-int(math.floor(time.localtime(time.time()).tm_min/float(20))),int(round((float(bought[2])-float(dict_[bought[0]]))*1000)))>sell_prob_limit) or (time.localtime(time.time()).tm_hour>=23 and time.localtime(time.time()).tm_min>=40)
+    return  ((temp>0 and int(round((float(bought[2])-float(dict_[bought[0]]))*1000))>=temp) or bought[7]=='涨停' or probability_to_lose(int(round((float(bought[2])-float(dict_[bought[0]]))*1000)),rlist[int(bought[8])],71-time.localtime(time.time()).tm_hour*3-int(math.floor(time.localtime(time.time()).tm_min/float(20))),int(round((float(bought[2])-float(dict_[bought[0]]))*1000)))>sell_prob_limit) or (time.localtime(time.time()).tm_hour>=23 and time.localtime(time.time()).tm_min>=40)
 
 # log记录卖出后失败概率
 def logthesellprob(bought):
