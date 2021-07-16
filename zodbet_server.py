@@ -1,6 +1,7 @@
 # coding=utf-8
 # for ubuntu
 #
+# python 3.8.8
 # 在ubuntu系统下服务器中运行的zodgame虚拟股市自动买入卖出以及记录的脚本
 # 可用crontab安排定时任务启动
 # 需要cookie保持自动登录
@@ -9,8 +10,8 @@
 # 虚拟股市网址
 jninvest_url="https://zodgame.xyz/plugin.php?id=jninvest"
 
-#rlist=[50, 50, 34, 10, 0, 10, 50, 50] 2021年7月5日11点40分之前[003]退市前单次波动最大值
-# 单次波动最大值
+#rlist=[50, 50, 34, 10, 0, 10, 50, 50] 2021年7月5日11点40分之前[003]退市前单次波动最大值(0代表未知)
+# 单次波动最大值(0代表未知)
 rlist=[50, 34, 10, 0, 10, 50, 50, 0]
 
 from sys import path
