@@ -1,6 +1,7 @@
 # coding=utf-8
 # for ubuntu
 #
+# python 3.8.8
 # 配合zodbet_server.py，置于同一目录，用于获取chrome的cookie
 # 在打开前，确保已经在chrome中登陆zodgame账号，并关闭chrome
 # 需要Selenium,chromedriver,BeautifulSoup4
