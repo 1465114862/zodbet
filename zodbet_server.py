@@ -12,7 +12,7 @@ jninvest_url="https://zodgame.xyz/plugin.php?id=jninvest"
 
 #rlist=[50, 50, 34, 10, 0, 10, 50, 50] 2021年7月5日11点40分之前[003]退市前单次波动最大值(0代表未知)
 # 单次波动最大值(0代表未知)
-rlist=[50, 34, 10, 0, 10, 50, 50, 0]
+rlist=[50, 34, 10, 0, 10, 50, 50, 50]
 
 from sys import path
 import urllib.request
