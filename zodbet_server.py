@@ -14,6 +14,7 @@ jninvest_url="https://zodgame.xyz/plugin.php?id=jninvest"
 # 单次波动最大值(0代表未知)
 rlist=[50, 34, 10, 0, 10, 50, 50, 50]
 
+from genericpath import isfile
 from sys import path
 import urllib.request
 from urllib.request import urlopen
@@ -36,6 +37,8 @@ from selenium.webdriver.support.select import Select
 from selenium.webdriver.common.by import By
 import urllib.error
 
+# 时间戳开始日
+start_day=datetime(2021,6,9)
 # 如果没有文件夹，将新建文件夹
 root_path=str(os.path.dirname(os.path.abspath(__file__)))
 dirpath=root_path+r'/data'
@@ -78,25 +81,16 @@ if(os.path.isfile(configPath)):
     tdict={}
     with open(configPath,'r',encoding='utf8') as f:
         tdict=json.loads(f.read(), strict=False)
-    my_headers={'User-Agent':tdict['User-Agent']}
-    my_headers.update({'Cookie':tdict['Cookie']})
     willing_to_buy=tdict['willing_to_buy']
     auto_trade=tdict['auto_trade']
-    showwindow=tdict['showwindow']
     sell_prob_limit=tdict['sell_prob_limit']
     buy_prob_limit=tdict['buy_prob_limit']
     ten_hand_limit=tdict['ten_hand_limit']
 else:
-    my_headers = {
-    'User-Agent':'请填入Request Headers的User-Agent',
-    "Cookie":"请填入Request Headers的cookie",
-    }
     # 购买意愿，1代表进行购入检查，0关闭
     willing_to_buy=1
     # 自动交易，1代表开启，0关闭
     auto_trade=1
-    # （弃用）
-    showwindow=0
     # 卖出概率限，默认0.1
     sell_prob_limit=0.1
     # 买入概率限，默认0.1
@@ -104,10 +98,8 @@ else:
     # 10手最低收益，默认10
     ten_hand_limit=10
     tdict={}
-    tdict.update(my_headers)
     tdict.update({'willing_to_buy':willing_to_buy})
     tdict.update({'auto_trade':auto_trade})
-    tdict.update({'showwindow':showwindow})
     tdict.update({'sell_prob_limit':sell_prob_limit})
     tdict.update({'buy_prob_limit':buy_prob_limit})
     tdict.update({'ten_hand_limit':ten_hand_limit})
@@ -129,6 +121,53 @@ def trytoopenpage(browser,url):
             continue
         else:
             break
+
+# webdriver初始化
+def webdriver_initialization():
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_experimental_option("excludeSwitches", ['enable-automation'])
+    chrome_options.add_argument('headless')
+    browser  = webdriver.Chrome(options=chrome_options)
+    trytoopenpage(browser,jninvest_url)
+    browser.delete_all_cookies()
+    with open(root_path+(r'/jninvestCookies.txt'),'r',encoding='utf8') as f:
+        listfCookies=json.loads(f.read())
+    for cookie in listfCookies:
+        browser.add_cookie(cookie)
+    time.sleep(0.1)
+    return browser
+
+# ------get_chr_co.py------
+def get_chrome_cookies():
+    logger.info("准备得到Cookies")
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_experimental_option("excludeSwitches", ['enable-automation'])
+    chrome_options.add_argument('headless')
+    chrome_options.add_argument(r"user-data-dir=/home/ubuntu/.config/google-chrome") #ubuntu用户设置文件夹(/ubuntu/为/用户名/)
+    #chrome_options.add_argument(r"user-data-dir=C:\Users\用户名\AppData\Local\Google\Chrome\User Data") #windows用户设置文件夹
+    browser  = webdriver.Chrome(options=chrome_options)
+    trytoopenpage(browser,jninvest_url)
+    dictCookies=browser.get_cookies()
+    jsonCookies=json.dumps(dictCookies)
+    # 保存cookies
+    with open(root_path+r'/jninvestCookies.txt','w') as f:
+        f.write(jsonCookies)
+    # 检测是否登陆成功，即cookie是否可用
+    html=browser.page_source
+    obj = bf(html,'html.parser')
+    table_html=obj.body.find('div',id='wp').find('div',align='center').table.find_all('tr')[1].td.find('div',class_='sd').find('div',class_='bm').find('div',class_='bm_c').table.find_all('tr')[0].find_all('td')[0]
+    if(table_html.text=='投资项目'):
+        logger.info('成功')
+    else:
+        logger.info('失败')
+    # 退出
+    browser.quit()
+    logger.info("已保存Cookies")
+    return
+
+if (not os.path.isfile(root_path+r'/jninvestCookies.txt')):
+    get_chrome_cookies()
+# ------get_chr_co.py------
 
 # 计算演化后仍没突破限制的概率，difference为跌停线与设定线差异/0.001，r为单次波动最大值，timeToEnd演化次数，initial初始位置
 def probability_to_lose(difference,r,timeToEnd,initial):
@@ -216,20 +255,7 @@ def solveSellLimit(tobuy):
     return
 
 # 自动买入
-def auto_buy(tobuy,zb,invested):
-    # webdriver初始化
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_experimental_option("excludeSwitches", ['enable-automation'])
-    chrome_options.add_argument('headless')
-    browser  = webdriver.Chrome(options=chrome_options)
-    trytoopenpage(browser,jninvest_url)
-    browser.delete_all_cookies()
-    with open(root_path+(r'/jninvestCookies.txt'),'r',encoding='utf8') as f:
-        listfCookies=json.loads(f.read())
-    for cookie in listfCookies:
-        browser.add_cookie(cookie)
-    time.sleep(1)
-
+def auto_buy(tobuy,zb,invested,browser):
     # 买入操作，价格高优先买入
     tobuy_=sorted(tobuy,key=(lambda x:[x[1],x[0]]))
     for i in range(len(tobuy_)):
@@ -250,7 +276,7 @@ def auto_buy(tobuy,zb,invested):
             handAvailable=int(math.floor(int(re.findall(r"\d+\.?d*",handAvailable_.text)[0])/100))
             zblimit=int(math.floor(zb/float(tobuy_[i][1])/100))
             handtoBuy=int(min([hand,handAvailable,zblimit,onestackhand,5]))
-            time.sleep(1)
+            time.sleep(0.1)
             if(hand==0):
                 tempdict={'单日手数量耗尽':1}
                 addSingleDict(root_path+'/tempdata/'+time.strftime('%Y%m%d', time.localtime(time.time()))+'.txt',tempdict)
@@ -260,11 +286,11 @@ def auto_buy(tobuy,zb,invested):
             if(dontcycle>50):
                 break
             select=Select(waitForXpath(browser,'/html/body/div[1]/div/table/tbody/tr[2]/td[2]/form/div/table/tbody/tr[3]/td/table/tbody/tr/td[2]/select'))
-            time.sleep(1)
+            time.sleep(0.1)
             select.select_by_index(handtoBuy)
-            time.sleep(1)
+            time.sleep(0.5)
             clickXpath(browser,'/html/body/div[1]/div/table/tbody/tr[2]/td[2]/form/p/button')
-            time.sleep(1)
+            time.sleep(0.1)
             zb-=math.ceil(handtoBuy*tobuy_[i][1]*100)
             onestackhand-=handtoBuy
             tempdict={tobuy_[i][2]+'sell':tobuy_[i][4]}
@@ -273,39 +299,23 @@ def auto_buy(tobuy,zb,invested):
             logger.info('hand buy:'+str(handtoBuy))
             logger.info('zb:'+str(zb))
 
-
-    time.sleep(2)
-    browser.quit()
+    time.sleep(0.1)
     return
 
 # 自动卖出
-def auto_sell(tosell):
-    # webdriver初始化
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_experimental_option("excludeSwitches", ['enable-automation'])
-    chrome_options.add_argument('headless')
-    browser  = webdriver.Chrome(options=chrome_options)
-    trytoopenpage(browser,jninvest_url)
-    browser.delete_all_cookies()
-    with open(root_path+(r'/jninvestCookies.txt'),'r',encoding='utf8') as f:
-        listfCookies=json.loads(f.read())
-    for cookie in listfCookies:
-        browser.add_cookie(cookie)
-    time.sleep(1)
-
+def auto_sell(tosell,browser):
     # 卖出操作
     tosell.sort()
     tosell.reverse()
     for i in range(len(tosell)):
         trytoopenpage(browser,jninvest_url)
         clickXpath(browser,'/html/body/div[5]/div[2]/table/tbody/tr[2]/td[1]/div[6]/div/div[2]/table/tbody/tr['+str(2+tosell[i])+']/td[6]/a')
-        time.sleep(1)
+        time.sleep(0.1)
         clickXpath(browser,'/html/body/div[1]/div[1]/table/tbody/tr[2]/td[2]/p/button[1]')
-        time.sleep(1)
+        time.sleep(0.1)
         logger.info('sell:'+str(tosell[i]))
 
-    time.sleep(2)
-    browser.quit()
+    time.sleep(0.1)
     return
 
 # 记录股价用，2d list转化为str
@@ -346,7 +356,7 @@ def logtheprob(data,index):
 # data结构[投资代码,持有人,当前价格 (每股),可认购股份数量,涨/跌幅,昨日闭市报,今日涨/跌幅,状态]
 # invested结构[投资代码,当前价格 (每股),您认购股份数量,认购股份平均价格]
 # tobuy结构[代号(0~7),当前价格 (每股)f,投资代码,昨日闭市报f,卖出价差/0.001(-1代表无效)]
-def check_buy(data,zb,will_buy,invested):
+def check_buy(data,zb,will_buy,invested,browser):
     if(will_buy==1):
         buy=[]
         tobuy=[]
@@ -369,7 +379,7 @@ def check_buy(data,zb,will_buy,invested):
                     logger.info('手数耗尽')
                 else:
                     logger.info('auto buy')
-                    auto_buy(tobuy,zb,invested)
+                    auto_buy(tobuy,zb,invested,browser)
     return
 
 # 3种卖出检测
@@ -397,7 +407,7 @@ def logthesellprob(bought):
 # 检查卖出
 # data结构[投资代码,持有人,当前价格 (每股),可认购股份数量,涨/跌幅,昨日闭市报,今日涨/跌幅,状态]
 # invested结构[投资代码,当前价格 (每股),您认购股份数量,认购股份平均价格]
-def check_sell(data,invested):
+def check_sell(data,invested,browser):
     tosell=[]
     sell=[]
     sell_state=[]
@@ -421,42 +431,14 @@ def check_sell(data,invested):
         sell_str=time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))+'\n目前有符合卖出条件股票，其信息如下：\n'+table2d_to_str(sell)+'\n其对应目前信息如下：\n'+table2d_to_str(sell_state)
         logger.info(sell_str)
         if(auto_trade==1):
-            auto_sell(tosell)
+            auto_sell(tosell,browser)
     return
 
 # 主函数
-def get_and_sav_state(the_url,the_header,time_str):
-    # urlopen获取数据
-    req = urllib.request.Request(url=the_url, headers=the_header)
-    # 错误重试10次
-    resetlim=10
-    for trytime in range(resetlim):
-        try:
-            with urlopen(req, timeout=30) as html:
-                obj = bf(html.read(),'html.parser')
-        except urllib.error.HTTPError :
-            logger.info('urllib.error.HTTPError错误，正在尝试重试链接，重试次数：'+str(trytime+1))
-            sleeptime=random.randint(1, 5)
-            time.sleep(sleeptime)
-            if (trytime==resetlim-1):
-                raise
-            continue
-        except urllib.error.URLError :
-            logger.info('urllib.error.URLError错误，正在尝试重试链接，重试次数：'+str(trytime+1))
-            sleeptime=random.randint(1, 5)
-            time.sleep(sleeptime)
-            if (trytime==resetlim-1):
-                raise
-            continue
-        except:
-            logger.info('未知错误，正在尝试重试链接，重试次数：'+str(trytime+1))
-            sleeptime=random.randint(1, 5)
-            time.sleep(sleeptime)
-            if (trytime==resetlim-1):
-                raise
-            continue
-        else:
-            break
+def get_and_sav_state(time_str,browser):
+    # 获取网页源代码
+    trytoopenpage(browser,jninvest_url)
+    obj = bf(browser.page_source,'html.parser')
     # 得到股价表
     table_html=obj.body.find('div',id='wp').find('div',align='center').table.find_all('tr')[1].td.find('div',class_='sd').find('div',class_='bm').find('div',class_='bm_c').table
     tr_html=table_html.find_all('tr')
@@ -508,10 +490,140 @@ def get_and_sav_state(the_url,the_header,time_str):
             writer.writerow(row_)
             invested.append(row_)
         csvfile.close()
-        check_sell(data_now,invested)
+        check_sell(data_now,invested,browser)
     # 检测买入
-    check_buy(data_now,zb_now,willing_to_buy,invested)
+    check_buy(data_now,zb_now,willing_to_buy,invested,browser)
 
+# ------file_merge.py------
+def fileNameToTimeStamp(fileName):
+    fileName_=fileName[:-4]
+    timelist=list(map(int,fileName_.split(r'-')))
+    now_day=datetime(timelist[0],timelist[1],timelist[2])
+    return [(int((now_day-start_day).days))*45+(timelist[3]-9)*3+int(math.floor(float(timelist[4])/float(20))),fileName_]
+
+def mergeddata(dir_path):
+    if (not os.path.exists(dir_path+r'/merged')):
+        os.makedirs(dir_path+r'/merged')
+    todelete=[]
+    indexdict={}
+    datalist=[]
+    files=[name for name in os.listdir(dir_path+r'/merged') if name.endswith('.csv')]
+    for i in range(len(files)):
+        indexdict.update({files[i][:-4]:len(indexdict)})
+        with open(dir_path+r'/merged/'+files[i],'r',encoding='utf8') as f:
+            csvdata=csv.reader(f)
+            datalist.append([])
+            for row in csvdata:
+                datalist[i].append(row)
+    maxtimelist=[0]
+    for i in range(len(datalist)):
+        maxtimelist.append(int(datalist[i][-1][0]))
+    maxtime=max(maxtimelist)
+    files=[name for name in os.listdir(dir_path) if name.endswith('.csv')]
+    files.sort()
+    for i in range(len(files)):
+        timestamp=fileNameToTimeStamp(files[i])
+        if(len(datalist)==0):
+            with open(dir_path+r'/'+files[i],'r',encoding='utf8') as f:
+                csvdata=csv.reader(f)
+                for row in csvdata:
+                    rowindex=row[0]
+                    row[0]=str(timestamp[0])
+                    row.append(timestamp[1])
+                    if rowindex in indexdict:
+                        datalist[indexdict[rowindex]].append(row)
+                    else:
+                        indexdict.update({rowindex:len(indexdict)})
+                        datalist.append([])
+                        datalist[indexdict[rowindex]].append(row)
+            todelete.append(files[i])
+        else:
+            if(maxtime<timestamp[0]):
+                with open(dir_path+r'/'+files[i],'r',encoding='utf8') as f:
+                    csvdata=csv.reader(f)
+                    for row in csvdata:
+                        rowindex=row[0]
+                        row[0]=str(timestamp[0])
+                        row.append(timestamp[1])
+                        if rowindex in indexdict:
+                            datalist[indexdict[rowindex]].append(row)
+                        else:
+                            indexdict.update({rowindex:len(indexdict)})
+                            datalist.append([])
+                            datalist[indexdict[rowindex]].append(row)
+                todelete.append(files[i])
+            else:
+                if(maxtime==timestamp[0]):
+                    todelete.append(files[i])
+    for i in range(len(indexdict)):
+        indexkeylist=list(indexdict.keys())
+        with open(dir_path+r'/merged/'+indexkeylist[i]+'.csv', 'w',newline = '', encoding = "utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            for j in range(len(datalist[i])):
+                writer.writerow(datalist[i][j])
+    for file in todelete:
+        os.remove(dir_path+r'/'+file)
+    return
+
+def file_merge():
+    mergeddata(root_path+r'/data')
+    mergeddata(root_path+r'/invested')
+
+    dir_path=root_path+r'/mystate'
+    if (not os.path.exists(dir_path+r'/merged')):
+        os.makedirs(dir_path+r'/merged')
+    todelete=[]
+    datalist=[]
+    if(os.path.isfile(dir_path+r'/merged/mystate.csv')):
+        with open(dir_path+r'/merged/mystate.csv','r',encoding='utf8') as f:
+            csvdata=csv.reader(f)
+            datalist.append([])
+            for row in csvdata:
+                datalist.append(row)
+    if(len(datalist)==0):
+        maxtime=0
+    else:
+        maxtime=[0,int(datalist[-1][0])]
+    files=[name for name in os.listdir(dir_path) if name.endswith('.csv')]
+    files.sort()
+    for i in range(len(files)):
+        timestamp=fileNameToTimeStamp(files[i])
+        if(len(datalist)==0):
+            with open(dir_path+r'/'+files[i],'r',encoding='utf8') as f:
+                csvdata=csv.reader(f)
+                for row in csvdata:
+                    row[1]=re.findall(r"\d+",row[1])[0]
+                    row[2]=re.findall(r"\d+",row[2])[0]
+                    row[3]=re.findall(r"\d+",row[3])[0]
+                    row[4]=re.findall(r"\d+\/?\d+",row[4])[0]
+                    row.insert(0,str(timestamp[0]))
+                    row.append(timestamp[1])
+                    datalist.append(row)
+            todelete.append(files[i])
+        else:
+            if(maxtime<timestamp[0]):
+                with open(dir_path+r'/'+files[i],'r',encoding='utf8') as f:
+                    csvdata=csv.reader(f)
+                    for row in csvdata:
+                        row[1]=re.findall(r"\d+",row[1])[0]
+                        row[2]=re.findall(r"\d+",row[2])[0]
+                        row[3]=re.findall(r"\d+",row[3])[0]
+                        row[4]=re.findall(r"\d+\/?\d+",row[4])[0]
+                        row.insert(0,str(timestamp[0]))
+                        row.append(timestamp[1])
+                        datalist.append(row)
+                todelete.append(files[i])
+            else:
+                if(maxtime==timestamp[0]):
+                    todelete.append(files[i])
+    with open(dir_path+r'/merged/mystate.csv', 'w',newline = '', encoding = "utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        for j in range(len(datalist)):
+            writer.writerow(datalist[j])
+    for file in todelete:
+            os.remove(dir_path+r'/'+file)
+    return
+# ------file_merge.py------
 
 # __main__
 try:
@@ -521,7 +633,10 @@ try:
         time.sleep(sleeptime) # 启动时间有15秒随机，防止被识别访问时间模式后拒绝访问
         now_time=time.localtime(time.time())
         this_time=time.strftime('%Y-%m-%d-%H-%M-%S',now_time)
-        get_and_sav_state(jninvest_url,my_headers,this_time)
+        with webdriver_initialization() as browser:
+            get_and_sav_state(this_time,browser)
+        if(now_time.tm_hour>=23 and now_time.tm_min>=40):
+            file_merge()
 except (SystemExit, KeyboardInterrupt):
     raise
 except Exception as e:
